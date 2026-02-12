@@ -29,6 +29,7 @@ declare module "@auth/core/jwt" {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: [
     Credentials({
       credentials: {
@@ -38,25 +39,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await prisma.usuario.findUnique({
-          where: { email: credentials.email as string },
-        });
+        try {
+          const user = await prisma.usuario.findUnique({
+            where: { email: credentials.email as string },
+          });
 
-        if (!user || !user.activo) return null;
+          if (!user || !user.activo) return null;
 
-        const isValid = await bcrypt.compare(
-          credentials.password as string,
-          user.password
-        );
-        if (!isValid) return null;
+          const isValid = await bcrypt.compare(
+            credentials.password as string,
+            user.password
+          );
+          if (!isValid) return null;
 
-        return {
-          id: user.id,
-          name: user.nombre,
-          email: user.email,
-          rol: user.rol,
-          depositoId: user.depositoId,
-        };
+          return {
+            id: user.id,
+            name: user.nombre,
+            email: user.email,
+            rol: user.rol,
+            depositoId: user.depositoId,
+          };
+        } catch (error) {
+          console.error("Auth error:", error);
+          return null;
+        }
       },
     }),
   ],
