@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== ENUMS ====================
+
+enum Rol {
+  ADMIN
+  ENCARGADO
+  OPERARIO
+  AUDITOR
+}
+
+enum EstadoUbicacion {
+  LIBRE
+  OCUPADA
+  RESERVADA
+}
+
+enum EstadoPallet {
+  COMPLETO
+  INCOMPLETO
+}
+
+enum TipoRemito {
+  INGRESO
+  EGRESO
+}
+
+enum OrigenRemito {
+  SAP
+  MANUAL
+}
+
+enum EstadoRemito {
+  PENDIENTE
+  APROBADO
+  ANULADO
+}
+
+// ==================== MODELOS ====================
+
+model Usuario {
+  id        String   @id @default(cuid())
+  nombre    String
+  email     String   @unique
+  password  String
+  rol       Rol      @default(OPERARIO)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  depositoId String?
+  deposito   Deposito? @relation(fields: [depositoId], references: [id])
+
+  remitosOperario  Remito[]           @relation("RemitoOperario")
+  remitosEncargado Remito[]           @relation("RemitoEncargado")
+  movimientos      MovimientoInterno[]
+}
+
+model Cliente {
+  id           String   @id @default(cuid())
+  razonSocial  String
+  cuit         String   @unique
+  contacto     String?
+  telefono     String?
+  email        String?
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  productos Producto[]
+  remitos   Remito[]
+}
+
+model Deposito {
+  id              String   @id @default(cuid())
+  nombre          String   @unique
+  direccion       String?
+  capacidadTotal  Int      @default(0) // se calcula al crear racks
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  racks    Rack[]
+  usuarios Usuario[]
+  remitos  Remito[]
+}
+
+model Rack {
+  id           String   @id @default(cuid())
+  codigo       String   // ej: "A1", "B3"
+  filas        Int      // pisos verticales
+  columnas     Int      // posiciones horizontales
+  profundidad  Int      // profundidad del rack
+  createdAt    DateTime @default(now())
+
+  depositoId String
+  deposito   Deposito @relation(fields: [depositoId], references: [id], onDelete: Cascade)
+
+  ubicaciones Ubicacion[]
+
+  @@unique([depositoId, codigo])
+}
+
+model Ubicacion {
+  id          String           @id @default(cuid())
+  fila        Int              // piso (1 = suelo)
+  columna     Int              // posición horizontal
+  profundidad Int              // 1 = frente, N = fondo
+  estado      EstadoUbicacion  @default(LIBRE)
+  codigo      String           // ej: "A1-F1-C1-P1" (rack-fila-col-prof)
+
+  rackId String
+  rack   Rack   @relation(fields: [rackId], references: [id], onDelete: Cascade)
+
+  pallet Pallet?
+
+  movimientosOrigen  MovimientoInterno[] @relation("UbicacionOrigen")
+  movimientosDestino MovimientoInterno[] @relation("UbicacionDestino")
+
+  @@unique([rackId, fila, columna, profundidad])
+}
+
+model Producto {
+  id            String   @id @default(cuid())
+  codigo        String   @unique
+  descripcion   String
+  unidadMedida  String   @default("UN") // UN, KG, LT, etc.
+  activo        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+
+  pallets        Pallet[]
+  remitoDetalles RemitoDetalle[]
+}
+
+model Pallet {
+  id           String       @id @default(cuid())
+  lote         String
+  cantidad     Float
+  estado       EstadoPallet @default(COMPLETO)
+  fechaIngreso DateTime     @default(now())
+  fechaEgreso  DateTime?
+  activo       Boolean      @default(true) // false cuando egresa
+  createdAt    DateTime     @default(now())
+
+  productoId  String
+  producto    Producto  @relation(fields: [productoId], references: [id])
+
+  ubicacionId String?   @unique
+  ubicacion   Ubicacion? @relation(fields: [ubicacionId], references: [id])
+
+  remitoDetalles RemitoDetalle[]
+  movimientos    MovimientoInterno[]
+}
+
+model Remito {
+  id            String       @id @default(cuid())
+  tipo          TipoRemito
+  origen        OrigenRemito
+  numero        String
+  fecha         DateTime     @default(now())
+  observaciones String?
+  estado        EstadoRemito @default(PENDIENTE)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  clienteId String
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
+
+  depositoId String
+  deposito   Deposito @relation(fields: [depositoId], references: [id])
+
+  operarioId String
+  operario   Usuario @relation("RemitoOperario", fields: [operarioId], references: [id])
+
+  encargadoId String?
+  encargado   Usuario? @relation("RemitoEncargado", fields: [encargadoId], references: [id])
+
+  detalles RemitoDetalle[]
+}
+
+model RemitoDetalle {
+  id       String @id @default(cuid())
+  lote     String
+  cantidad Float
+
+  remitoId String
+  remito   Remito @relation(fields: [remitoId], references: [id], onDelete: Cascade)
+
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id])
+
+  palletId String?
+  pallet   Pallet? @relation(fields: [palletId], references: [id])
+}
+
+model MovimientoInterno {
+  id     String   @id @default(cuid())
+  fecha  DateTime @default(now())
+  motivo String?
+
+  palletId String
+  pallet   Pallet @relation(fields: [palletId], references: [id])
+
+  ubicacionOrigenId String
+  ubicacionOrigen   Ubicacion @relation("UbicacionOrigen", fields: [ubicacionOrigenId], references: [id])
+
+  ubicacionDestinoId String
+  ubicacionDestino   Ubicacion @relation("UbicacionDestino", fields: [ubicacionDestinoId], references: [id])
+
+  operarioId String
+  operario   Usuario @relation(fields: [operarioId], references: [id])
+}
